@@ -1,0 +1,24 @@
+# API and HTTP requests
+requests
+
+# MySQL database connector
+mysql-connector-python
+
+# Data manipulation (will be needed for Silver/Gold layers)
+pandas
+
+# Orchestration (for scheduled flows)
+prefect
+
+# ML experimentation and tracking
+mlflow
+
+# API serving for model endpoints
+fastapi
+uvicorn
+
+# Monitoring for drift
+evidently
+
+# For Docker-based workflows (optional helper libraries)
+docker
