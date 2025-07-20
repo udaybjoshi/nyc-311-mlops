@@ -29,3 +29,5 @@ data/
 .dvc/
 .cache/
 
+.DS_Store
+
