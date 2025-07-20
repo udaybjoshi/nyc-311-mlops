@@ -15,7 +15,6 @@ ENV/
 .idea/
 
 # Data
-#data/
 *.sqlite
 *.db
 
