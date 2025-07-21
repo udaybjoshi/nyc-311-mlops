@@ -7,11 +7,22 @@ Now uses Python logging for better observability.
 """
 
 import requests
+import os
+import sys
 import json
 import argparse
 import logging
 from datetime import datetime, timedelta
 from data.db_utils import get_mysql_connection
+
+# Ensure we are using the correct Python environment
+expected_python = os.path.abspath(os.path.join(os.getcwd(), ".venv/bin/python"))
+current_python = sys.executable
+
+if not current_python.startswith(expected_python):
+    print(f"WARNING: You are using {current_python}, not the project's .venv interpreter.")
+    print(f"To fix: run `source .venv/bin/activate` from the project root.")
+    sys.exit(1)
 
 BASE_URL = "https://data.cityofnewyork.us/resource/erm2-nwe9.json"
 PAGE_SIZE = 1000
