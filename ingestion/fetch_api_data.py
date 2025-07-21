@@ -1,104 +1,106 @@
 """
-NYC 311 API Ingestion Script with Logging
-
-Pulls daily batches of NYC 311 service request data and stores
-raw JSON records into a MySQL database (Bronze layer).
-Now uses Python logging for better observability.
+Fetch and store NYC 311 data into the Bronze layer (MySQL).
+Supports:
+- Single-day ingestion (incremental mode).
+- Multi-day historical backfill (last N days).
 """
 
-import requests
 import os
-import sys
+import requests
 import json
-import argparse
 import logging
 from datetime import datetime, timedelta
 from data.db_utils import get_mysql_connection
-
-# Ensure we are using the correct Python environment
-expected_python = os.path.abspath(os.path.join(os.getcwd(), ".venv/bin/python"))
-current_python = sys.executable
-
-if not current_python.startswith(expected_python):
-    print(f"WARNING: You are using {current_python}, not the project's .venv interpreter.")
-    print(f"To fix: run `source .venv/bin/activate` from the project root.")
-    sys.exit(1)
-
-BASE_URL = "https://data.cityofnewyork.us/resource/erm2-nwe9.json"
-PAGE_SIZE = 1000
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("logs/ingestion.log")]
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("logs/fetch_api_data.log")
+    ]
 )
 logger = logging.getLogger(__name__)
 
-def build_query_params(target_date, offset):
-    """Build query parameters for API requests."""
-    start = f"{target_date}T00:00:00"
-    end = f"{target_date}T23:59:59"
-    return {
-        "$where": f"created_date between '{start}' and '{end}'",
-        "$limit": PAGE_SIZE,
-        "$offset": offset
+NYC_311_API = "https://data.cityofnewyork.us/resource/erm2-nwe9.json"  # Example endpoint
+BRONZE_TABLE = "bronze_raw_requests"
+
+
+def fetch_data_for_date(date_str: str, limit: int = 1000):
+    """
+    Fetch 311 complaint data for a specific date from the API.
+    Returns a list of raw JSON strings.
+    """
+    params = {
+        "$limit": limit,
+        "$where": f"created_date >= '{date_str}T00:00:00' AND created_date < '{date_str}T23:59:59'"
     }
+    try:
+        logger.info(f"Fetching NYC 311 data for {date_str}...")
+        resp = requests.get(NYC_311_API, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        logger.info(f"Fetched {len(data)} records for {date_str}.")
+        return [json.dumps(record) for record in data]
+    except Exception as e:
+        logger.error(f"API fetch failed for {date_str}: {e}", exc_info=True)
+        return []
 
-def fetch_data_for_date(target_date):
-    """Fetch all NYC 311 data for a given date via pagination."""
-    logger.info(f"Fetching NYC 311 data for {target_date}...")
-    all_records = []
-    offset = 0
-    while True:
-        params = build_query_params(target_date, offset)
-        r = requests.get(BASE_URL, params=params)
-        if r.status_code != 200:
-            logger.error(f"Error fetching data: {r.status_code}")
-            break
 
-        batch = r.json()
-        if not batch:
-            break
-
-        all_records.extend(batch)
-        logger.info(f"Fetched {len(batch)} records (offset {offset})")
-
-        if len(batch) < PAGE_SIZE:
-            break
-
-        offset += PAGE_SIZE
-    return all_records
-
-def save_to_mysql(records, target_date):
-    """Save fetched records into MySQL (Bronze layer)."""
+def save_to_mysql(records, date_str: str):
+    """
+    Insert raw JSON records into the Bronze table.
+    Skips duplicates using INSERT IGNORE.
+    """
     if not records:
-        logger.warning("No records to save.")
+        logger.info(f"No records to save for {date_str}.")
         return
 
     conn = get_mysql_connection()
     cursor = conn.cursor()
-    insert_sql = """
-        INSERT INTO bronze_raw_requests (ingestion_date, raw_json)
-        VALUES (%s, CAST(%s AS JSON))
-    """
-    for rec in records:
-        cursor.execute(insert_sql, (target_date, json.dumps(rec)))
+
+    # Ensure Bronze table exists
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS {BRONZE_TABLE} (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            raw_json JSON,
+            created_at DATE,
+            inserted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_date_json (created_at, raw_json(255))
+        )
+    """)
+    conn.commit()
+
+    insert_sql = f"INSERT IGNORE INTO {BRONZE_TABLE} (raw_json, created_at) VALUES (%s, %s)"
+
+    inserted = 0
+    for record in records:
+        try:
+            cursor.execute(insert_sql, (record, date_str))
+            inserted += 1
+        except Exception as e:
+            logger.error(f"Failed to insert record for {date_str}: {e}")
+
     conn.commit()
     cursor.close()
     conn.close()
-    logger.info(f"Saved {len(records)} records to MySQL (Bronze layer).")
+    logger.info(f"Inserted {inserted}/{len(records)} Bronze records for {date_str}.")
 
-def main():
-    """Run the ingestion for a given date (defaults to yesterday)."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--date", help="Date to fetch in YYYY-MM-DD format (default: yesterday)")
-    args = parser.parse_args()
 
-    target_date = args.date or (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-    records = fetch_data_for_date(target_date)
-    save_to_mysql(records, target_date)
+def backfill_bronze(days: int):
+    """
+    Fetch and store NYC 311 API data for the last `days` days.
+    Runs oldest → newest to maintain chronological order.
+    """
+    today = datetime.now().date()
+    for i in range(days, 0, -1):
+        target_date = (today - timedelta(days=i)).strftime("%Y-%m-%d")
+        logger.info(f"Backfilling Bronze layer for {target_date}...")
+        try:
+            records = fetch_data_for_date(target_date)
+            save_to_mysql(records, target_date)
+        except Exception as e:
+            logger.error(f"Backfill failed for {target_date}: {e}", exc_info=True)
 
-if __name__ == "__main__":
-    main()
 
