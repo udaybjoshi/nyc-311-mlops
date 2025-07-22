@@ -22,3 +22,6 @@ evidently
 
 # For Docker-based workflows (optional helper libraries)
 docker
+
+# Testing
+pytest

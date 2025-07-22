@@ -1,14 +1,23 @@
 """
-Silver → Gold Transformation (Incremental + Backfill + Retry).
+Silver → Gold Transformation Script (Feature Engineering + Aggregation)
 
-- Processes ONLY new Silver records (incremental mode) OR
-  reprocesses last `N` days (backfill mode).
-- Derives features:
-    * date, hour, day_of_week
-    * slow_case label (proxy: open complaints)
-- Aggregates complaint counts and slow_case_ratio.
-- Inserts results into `gold_aggregated_complaints`.
-- Includes error handling, retries, and Prefect task integration.
+This script processes cleaned 311 data from the Silver layer (`silver_cleaned_requests`)
+and generates aggregated features into a Gold table (`gold_aggregated_complaints`).
+
+Key Features:
+    - Extracts date, hour, day_of_week from `created_date`.
+    - Calculates complaint volume per group (date, borough, complaint_type).
+    - Derives `slow_case_ratio` as a proxy for complaint resolution speed.
+    - Supports incremental processing.
+    - Exposed as a Prefect `@task` for orchestration.
+
+Tables Used:
+    - **Input:** `silver_cleaned_requests`
+    - **Output:** `gold_aggregated_complaints`
+
+Example:
+    Run directly:
+        >>> python -m transformation.transform_to_gold
 """
 
 import pandas as pd
@@ -17,19 +26,26 @@ import time
 from data.db_utils import get_mysql_connection
 from prefect import task
 
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("logs/transform_gold.log")
-    ]
+    handlers=[logging.StreamHandler(), logging.FileHandler("logs/transform_gold.log")]
 )
 logger = logging.getLogger(__name__)
 
 
 def ensure_gold_table():
-    """Ensure the Gold table exists with proper schema."""
+    """
+    Ensure the Gold aggregation table exists (creates it if not).
+
+    Columns:
+        - date (DATE): Day of complaint.
+        - borough, complaint_type: Categorical features.
+        - hour, day_of_week: Derived time features.
+        - complaint_count: Aggregated volume.
+        - slow_case_ratio: Ratio of unresolved cases (proxy metric).
+    """
     conn = get_mysql_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -48,92 +64,76 @@ def ensure_gold_table():
     conn.commit()
     cursor.close()
     conn.close()
-    logger.info("Verified Gold table exists.")
 
 
-def get_last_processed_date():
-    """Get the last processed date from Gold for incremental loading."""
-    conn = get_mysql_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT MAX(date) FROM gold_aggregated_complaints")
-    last_date = cursor.fetchone()[0]
-    cursor.close()
-    conn.close()
-    return last_date
-
-
-def fetch_new_silver_data(last_date=None):
-    """Fetch only new Silver data newer than the last Gold date."""
-    conn = get_mysql_connection()
-    if last_date:
-        query = f"""
-            SELECT created_date, complaint_type, borough, status
-            FROM silver_cleaned_requests
-            WHERE DATE(created_date) > '{last_date}'
-        """
-    else:
-        query = "SELECT created_date, complaint_type, borough, status FROM silver_cleaned_requests"
-
-    df = pd.read_sql(query, conn)
-    conn.close()
-    logger.info(f"Fetched {len(df)} Silver records for Gold processing.")
-    return df
-
-
-def fetch_backfill_silver_data(days: int):
-    """Fetch all Silver data for the last `days` days (for backfill)."""
-    conn = get_mysql_connection()
-    query = f"""
-        SELECT created_date, complaint_type, borough, status
-        FROM silver_cleaned_requests
-        WHERE DATE(created_date) >= CURDATE() - INTERVAL {days} DAY
-        ORDER BY created_date ASC
+def fetch_silver_data():
     """
+    Fetch cleaned Silver records for aggregation.
+
+    Returns:
+        pd.DataFrame: Silver data with `created_date`, `complaint_type`, `borough`, `status`.
+    """
+    conn = get_mysql_connection()
+    query = "SELECT created_date, complaint_type, borough, status FROM silver_cleaned_requests"
     df = pd.read_sql(query, conn)
     conn.close()
-    logger.info(f"Fetched {len(df)} Silver records for backfill ({days} days).")
+    logger.info(f"Fetched {len(df)} Silver records for Gold transformation.")
     return df
 
 
-def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Derive temporal features and aggregate complaint data."""
+def engineer_features(df: pd.DataFrame):
+    """
+    Engineer Gold features from Silver data.
+
+    Steps:
+        - Extract `date`, `hour`, `day_of_week`.
+        - Label unresolved cases as "slow_case".
+        - Aggregate by (date, borough, complaint_type, hour, day_of_week).
+        - Compute `slow_case_ratio`.
+
+    Args:
+        df (pd.DataFrame): Cleaned Silver records.
+
+    Returns:
+        pd.DataFrame: Aggregated Gold DataFrame with engineered features.
+    """
     if df.empty:
-        logger.warning("No Silver records to transform.")
         return pd.DataFrame()
 
-    try:
-        df["date"] = pd.to_datetime(df["created_date"], errors="coerce").dt.date
-        df["hour"] = pd.to_datetime(df["created_date"], errors="coerce").dt.hour
-        df["day_of_week"] = pd.to_datetime(df["created_date"], errors="coerce").dt.day_name()
+    df["date"] = pd.to_datetime(df["created_date"]).dt.date
+    df["hour"] = pd.to_datetime(df["created_date"]).dt.hour
+    df["day_of_week"] = pd.to_datetime(df["created_date"]).dt.day_name()
 
-        df["slow_case"] = df["status"].fillna("").str.contains("OPEN").astype(int)
+    # Mark unresolved/open cases
+    df["slow_case"] = (df["status"].str.contains("OPEN", na=False)).astype(int)
 
-        df = df.dropna(subset=["date"])
-
-        agg = (
-            df.groupby(["date", "borough", "complaint_type", "hour", "day_of_week"])
-            .agg(
-                complaint_count=("complaint_type", "size"),
-                slow_cases=("slow_case", "sum")
-            )
-            .reset_index()
+    agg = (
+        df.groupby(["date", "borough", "complaint_type", "hour", "day_of_week"])
+        .agg(
+            complaint_count=("complaint_type", "size"),
+            slow_cases=("slow_case", "sum")
         )
+        .reset_index()
+    )
 
-        agg["slow_case_ratio"] = (agg["slow_cases"] / agg["complaint_count"]).round(2)
-        agg.drop(columns=["slow_cases"], inplace=True)
+    agg["slow_case_ratio"] = (agg["slow_cases"] / agg["complaint_count"]).round(2)
+    agg.drop(columns=["slow_cases"], inplace=True)
 
-        logger.info(f"Generated {len(agg)} Gold records.")
-        return agg
-
-    except Exception as e:
-        logger.error(f"Feature engineering failed: {e}", exc_info=True)
-        return pd.DataFrame()
+    logger.info(f"Engineered {len(agg)} Gold records with features.")
+    return agg
 
 
 def write_to_gold(df: pd.DataFrame, retries: int = 3, delay: int = 5):
-    """Insert aggregated Gold data into MySQL with retries."""
+    """
+    Write aggregated Gold data into `gold_aggregated_complaints` with retry logic.
+
+    Args:
+        df (pd.DataFrame): Aggregated Gold records.
+        retries (int): Max retry attempts.
+        delay (int): Delay between retries in seconds.
+    """
     if df.empty:
-        logger.info("No Gold records to insert.")
+        logger.info("No Gold records to write.")
         return
 
     attempt = 0
@@ -141,54 +141,42 @@ def write_to_gold(df: pd.DataFrame, retries: int = 3, delay: int = 5):
         try:
             conn = get_mysql_connection()
             cursor = conn.cursor()
-
             insert_sql = """
-            INSERT INTO gold_aggregated_complaints
-            (date, borough, complaint_type, hour, day_of_week, complaint_count, slow_case_ratio)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO gold_aggregated_complaints
+                (date, borough, complaint_type, hour, day_of_week, complaint_count, slow_case_ratio)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
             """
-
             for _, row in df.iterrows():
                 cursor.execute(insert_sql, (
-                    row["date"],
-                    row["borough"],
-                    row["complaint_type"],
-                    int(row["hour"]),
-                    row["day_of_week"],
-                    int(row["complaint_count"]),
-                    float(row["slow_case_ratio"]),
+                    row["date"], row["borough"], row["complaint_type"],
+                    int(row["hour"]), row["day_of_week"],
+                    int(row["complaint_count"]), float(row["slow_case_ratio"])
                 ))
-
             conn.commit()
             cursor.close()
             conn.close()
-            logger.info(f"Inserted {len(df)} Gold records.")
+            logger.info(f"Wrote {len(df)} records to Gold table.")
             break
-
         except Exception as e:
             attempt += 1
-            logger.error(f"Insert failed (attempt {attempt}/{retries}): {e}", exc_info=True)
+            logger.error(f"Error writing to Gold (attempt {attempt}/{retries}): {e}")
             time.sleep(delay)
-            if attempt == retries:
-                logger.critical("Max retries reached. Gold write failed.")
 
 
 @task(name="silver-to-gold")
-def silver_to_gold_task(backfill_days: int = 0):
+def silver_to_gold_task():
     """
-    Prefect task: Silver → Gold transformation.
-    - Incremental mode (default) processes only new records.
-    - Backfill mode (`backfill_days > 0`) reprocesses historical data.
+    Prefect task: Run Silver → Gold transformation.
     """
     ensure_gold_table()
-    if backfill_days > 0:
-        silver_df = fetch_backfill_silver_data(backfill_days)
-    else:
-        last_date = get_last_processed_date()
-        silver_df = fetch_new_silver_data(last_date)
-
+    silver_df = fetch_silver_data()
     gold_df = engineer_features(silver_df)
     write_to_gold(gold_df)
+
+
+if __name__ == "__main__":
+    silver_to_gold_task()
+
 
 
 
