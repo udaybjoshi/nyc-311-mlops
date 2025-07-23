@@ -1,88 +1,80 @@
 services:
   mysql:
     image: mysql:8.0
+    container_name: nyc-311-mlops-mysql
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: nyc311
     ports:
-      - "3307:3306"
+      - "${MYSQL_PORT:-3306}:3306"
     volumes:
       - nyc-311-mlops_mysql_data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-uroot", "-proot"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 5
-    restart: always
+      retries: 30
 
   api:
     build:
       context: ./api
-    command: uvicorn app:app --host 0.0.0.0 --port 8000 --reload
-    ports:
-      - "8000:8000"
+      dockerfile: Dockerfile
+    container_name: nyc-311-mlops-api
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_PASSWORD: root
+      MYSQL_DB: nyc311
     depends_on:
       mysql:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: always
+    ports:
+      - "8000:8000"
+    command: >
+      sh -c "uvicorn app:app --host 0.0.0.0 --port 8000 --reload"
 
   dashboard:
     build:
       context: ./dashboard
-    command: streamlit run app.py --server.port=8501
+      dockerfile: Dockerfile
+    container_name: nyc-311-mlops-dashboard
+    depends_on:
+      - api
     ports:
       - "8501:8501"
-    depends_on:
-      api:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: always
+    command: >
+      sh -c "streamlit run app.py --server.port=8501 --server.address=0.0.0.0"
 
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v2.8.1
-    command: mlflow server --backend-store-uri sqlite:///mlflow.db --host 0.0.0.0 --port 5001
-    ports:
-      - "5001:5001"
+    image: ghcr.io/mlflow/mlflow:v2.9.2
+    container_name: nyc-311-mlops-mlflow
+    command: >
+      mlflow server --backend-store-uri sqlite:///mlflow.db --host 0.0.0.0 --port 5000
     volumes:
       - nyc-311-mlops_mlflow_data:/mlflow
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5001"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: always
+    ports:
+      - "5000:5000"
 
   prefect:
-    image: prefecthq/prefect:2.13.0-python3.11
-    command: prefect orion start --host 0.0.0.0 --port 4200
+    image: prefecthq/prefect:2-latest
+    container_name: nyc-311-mlops-prefect
+    command: >
+      sh -c "prefect server start --host 0.0.0.0 --port 4200"
     ports:
       - "4200:4200"
-    environment:
-      PREFECT_API_URL: http://0.0.0.0:4200/api
-      PREFECT_ORION_UI_API_URL: http://localhost:4200/api
     volumes:
       - nyc-311-mlops_prefect_data:/root/.prefect
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4200/api"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    restart: always
 
 volumes:
   nyc-311-mlops_mysql_data:
   nyc-311-mlops_mlflow_data:
   nyc-311-mlops_prefect_data:
+
+
+
+
+
 
 
 
