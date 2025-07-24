@@ -54,7 +54,7 @@ services:
     volumes:
       - nyc-311-mlops_mlflow_data:/mlflow
     ports:
-      - "5000:5000"
+      - "5001:5000"
 
   prefect:
     image: prefecthq/prefect:2-latest
