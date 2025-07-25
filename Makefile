@@ -67,6 +67,8 @@ banner:
 	@echo "🌐 Access your services:"
 	@echo "    API Docs:     http://localhost:8000/docs"
 	@echo "    Prefect UI:   http://localhost:4200"
+	@echo "    MLflow UI:    http://localhost:5000"
+	@echo "    Dashboard (UI): http://localhost:8501"
 	@echo "=================================================="
 
 
