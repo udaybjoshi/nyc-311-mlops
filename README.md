@@ -1,6 +1,4 @@
-# Create a README.md file based on the NYC 311 MLOps project functionality
-
-readme_content = """# 🚀 NYC 311 Service Request Intelligence Platform
+# 🚀 NYC 311 Service Request Intelligence Platform
 
 A production-grade MLOps pipeline for ingesting, processing, forecasting, and detecting anomalies in NYC 311 service request data.
 
