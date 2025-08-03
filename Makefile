@@ -3,8 +3,10 @@ MYSQL_PORT := $(shell \
 	if ! lsof -i:3306 >/dev/null 2>&1; then echo 3306; else echo 3307; fi \
 )
 
-.PHONY: demo reset wait-for-services wait-for-mysql wait-for-api wait-for-prefect logs banner
+.PHONY: demo reset wait-for-services wait-for-mysql wait-for-api wait-for-prefect logs banner \
+        bronze-backfill forecast test docker-logs-api clean
 
+# 🧪 Demo environment setup
 demo: reset wait-for-services banner
 
 reset:
@@ -54,6 +56,16 @@ logs:
 	@echo "🔍 Fetching logs for MySQL, API, Prefect (for troubleshooting)..."
 	docker-compose logs mysql api prefect
 
+docker-logs-api:
+	@echo "📜 Streaming logs from the API container..."
+	docker-compose logs -f api
+
+clean:
+	@echo "🧹 Cleaning up logs, output, and containers..."
+	rm -rf logs/*
+	rm -rf output/*
+	docker-compose down -v
+
 banner:
 	@echo "=================================================="
 	@echo "🎉 NYC 311 MLOps stack is up and running!"
@@ -70,6 +82,22 @@ banner:
 	@echo "    MLflow UI:    http://localhost:5000"
 	@echo "    Dashboard (UI): http://localhost:8501"
 	@echo "=================================================="
+
+# 🥇 Custom project targets
+
+bronze-backfill:
+	@echo "📥 Running initial 2-year Bronze layer backfill..."
+	python scripts/initial_bronze_load.py
+
+forecast:
+	@echo "📈 Running forecast from Gold layer..."
+	python orchestration/forecast_from_gold_flow.py
+
+test:
+	@echo "🧪 Running unit and integration tests..."
+	pytest tests/ -v
+
+
 
 
 
