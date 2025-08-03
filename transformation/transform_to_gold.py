@@ -1,23 +1,13 @@
 """
-Silver → Gold Transformation Script (Feature Engineering + Aggregation)
+Silver → Gold Transformation Script (Feature Engineering + Aggregation + Forecast Input)
 
-This script processes cleaned 311 data from the Silver layer (`silver_cleaned_requests`)
-and generates aggregated features into a Gold table (`gold_aggregated_complaints`).
+This version is enhanced to support:
+    - Feature engineering for Silver → Gold.
+    - Return of the aggregated Gold DataFrame for downstream ML tasks (forecasting, anomaly detection).
 
-Key Features:
-    - Extracts date, hour, day_of_week from `created_date`.
-    - Calculates complaint volume per group (date, borough, complaint_type).
-    - Derives `slow_case_ratio` as a proxy for complaint resolution speed.
-    - Supports incremental processing.
-    - Exposed as a Prefect `@task` for orchestration.
-
-Tables Used:
-    - **Input:** `silver_cleaned_requests`
-    - **Output:** `gold_aggregated_complaints`
-
-Example:
-    Run directly:
-        >>> python -m transformation.transform_to_gold
+Output:
+    - Writes to `gold_aggregated_complaints` (for persistence).
+    - Returns a citywide daily aggregation DataFrame (for forecast/anomaly modules).
 """
 
 import pandas as pd
@@ -36,16 +26,6 @@ logger = logging.getLogger(__name__)
 
 
 def ensure_gold_table():
-    """
-    Ensure the Gold aggregation table exists (creates it if not).
-
-    Columns:
-        - date (DATE): Day of complaint.
-        - borough, complaint_type: Categorical features.
-        - hour, day_of_week: Derived time features.
-        - complaint_count: Aggregated volume.
-        - slow_case_ratio: Ratio of unresolved cases (proxy metric).
-    """
     conn = get_mysql_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -67,12 +47,6 @@ def ensure_gold_table():
 
 
 def fetch_silver_data():
-    """
-    Fetch cleaned Silver records for aggregation.
-
-    Returns:
-        pd.DataFrame: Silver data with `created_date`, `complaint_type`, `borough`, `status`.
-    """
     conn = get_mysql_connection()
     query = "SELECT created_date, complaint_type, borough, status FROM silver_cleaned_requests"
     df = pd.read_sql(query, conn)
@@ -82,29 +56,12 @@ def fetch_silver_data():
 
 
 def engineer_features(df: pd.DataFrame):
-    """
-    Engineer Gold features from Silver data.
-
-    Steps:
-        - Extract `date`, `hour`, `day_of_week`.
-        - Label unresolved cases as "slow_case".
-        - Aggregate by (date, borough, complaint_type, hour, day_of_week).
-        - Compute `slow_case_ratio`.
-
-    Args:
-        df (pd.DataFrame): Cleaned Silver records.
-
-    Returns:
-        pd.DataFrame: Aggregated Gold DataFrame with engineered features.
-    """
     if df.empty:
         return pd.DataFrame()
 
     df["date"] = pd.to_datetime(df["created_date"]).dt.date
     df["hour"] = pd.to_datetime(df["created_date"]).dt.hour
     df["day_of_week"] = pd.to_datetime(df["created_date"]).dt.day_name()
-
-    # Mark unresolved/open cases
     df["slow_case"] = (df["status"].str.contains("OPEN", na=False)).astype(int)
 
     agg = (
@@ -124,14 +81,6 @@ def engineer_features(df: pd.DataFrame):
 
 
 def write_to_gold(df: pd.DataFrame, retries: int = 3, delay: int = 5):
-    """
-    Write aggregated Gold data into `gold_aggregated_complaints` with retry logic.
-
-    Args:
-        df (pd.DataFrame): Aggregated Gold records.
-        retries (int): Max retry attempts.
-        delay (int): Delay between retries in seconds.
-    """
     if df.empty:
         logger.info("No Gold records to write.")
         return
@@ -166,16 +115,25 @@ def write_to_gold(df: pd.DataFrame, retries: int = 3, delay: int = 5):
 @task(name="silver-to-gold")
 def silver_to_gold_task():
     """
-    Prefect task: Run Silver → Gold transformation.
+    Prefect task: Run Silver → Gold transformation and return citywide daily DataFrame.
     """
     ensure_gold_table()
     silver_df = fetch_silver_data()
     gold_df = engineer_features(silver_df)
     write_to_gold(gold_df)
 
+    # Return daily city-level aggregation for downstream forecast
+    if not gold_df.empty:
+        daily_df = (
+            gold_df.groupby("date")
+            .agg(request_count=("complaint_count", "sum"))
+            .reset_index()
+            .rename(columns={"date": "request_date"})
+        )
+        logger.info(f"Returning {len(daily_df)} records for forecast/anomaly pipeline.")
+        return daily_df
 
-if __name__ == "__main__":
-    silver_to_gold_task()
+    return pd.DataFrame()
 
 
 

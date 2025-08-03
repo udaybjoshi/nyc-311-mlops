@@ -3,6 +3,7 @@ requests
 
 # MySQL database connector
 mysql-connector-python
+pymysql
 
 # Data manipulation (will be needed for Silver/Gold layers)
 pandas
@@ -25,3 +26,7 @@ docker
 
 # Testing
 pytest
+
+# Forecasting
+prophet
+optuna
