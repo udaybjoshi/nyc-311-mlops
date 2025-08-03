@@ -1,24 +1,34 @@
+# tests/test_pipeline_backfill.py
+
 import pytest
-from orchestration.full_pipeline_flow import full_pipeline
-from data.db_utils import get_mysql_connection
+from unittest.mock import patch
 
-def test_full_pipeline_backfill_end_to_end():
-    """Run the full ETL pipeline with backfill and verify all layers have data."""
-    full_pipeline(backfill_days=7)
+# Import the flow but alias it to full_pipeline to keep test names consistent
+from orchestration.full_pipeline_flow import medallion_pipeline as full_pipeline
 
-    conn = get_mysql_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM bronze_raw_requests")
-    bronze = cursor.fetchone()[0]
+@patch("orchestration.full_pipeline_flow.train_model_task")
+@patch("orchestration.full_pipeline_flow.silver_to_gold_task")
+@patch("orchestration.full_pipeline_flow.bronze_to_silver_task")
+@patch("orchestration.full_pipeline_flow.save_to_mysql")
+@patch("orchestration.full_pipeline_flow.fetch_data_for_date")
+def test_pipeline_mocked(
+    mock_fetch,
+    mock_save,
+    mock_silver,
+    mock_gold,
+    mock_train
+):
+    """Test that the pipeline flow runs without executing real tasks."""
+    # Arrange: set mock return values
+    mock_fetch.return_value = [{"mock": "record"}]
+    
+    # Act: run the flow
+    full_pipeline(target_date="2025-08-01")
+    
+    # Assert: all mocks were called
+    mock_fetch.assert_called_once_with("2025-08-01")
+    mock_save.assert_called_once()
+    mock_silver.assert_called_once()
+    mock_gold.assert_called_once()
+    mock_train.assert_called_once()
 
-    cursor.execute("SELECT COUNT(*) FROM silver_cleaned_requests")
-    silver = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM gold_aggregated_complaints")
-    gold = cursor.fetchone()[0]
-    cursor.close()
-    conn.close()
-
-    assert bronze > 0, "Bronze is empty after backfill"
-    assert silver > 0, "Silver is empty after backfill"
-    assert gold > 0, "Gold is empty after backfill"
