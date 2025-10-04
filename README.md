@@ -67,7 +67,7 @@ However, due to the large volume and variety of requests, **sudden spikes or ano
         │ Streamlit Dashboard │
         │  + MLflow Tracking  │
         └────────────────────┘
-
+```
 ---
 
 ## Repository Structure
