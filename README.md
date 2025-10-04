@@ -1,102 +1,89 @@
-# 📊 NYC 311 Service Request Intelligence Platform (AWS + Databricks Edition)
+# 🗽 NYC 311 Service Request Intelligence Platform
 
-## 🎯 Project Objective
-
-Build a **real-time, production-grade MLOps pipeline** on AWS and Databricks that:
-
-- Ingests NYC 311 data daily from the API
-- Follows a Medallion Architecture: Bronze → Silver → Gold
-- Forecasts service request volumes using Prophet
-- Flags anomalies based on model thresholds
-- Tracks experiments using MLflow (Databricks-native)
-- Visualizes insights via Streamlit
-- Is containerized and CI/CD-enabled for deployment
+A **production-grade data pipeline** that ingests NYC 311 service request data daily, processes it using the **Medallion Architecture** (Bronze → Silver → Gold), applies **forecasting** and **anomaly detection**, and visualizes insights via a **Streamlit dashboard**.
 
 ---
 
-## 🧱 Project Architecture Overview
+## 💼 Business Case: Why Anomaly Detection?
 
-| Layer               | Technology Used                                         |
-|--------------------|----------------------------------------------------------|
-| Ingestion          | Python, S3, Databricks Auto Loader                       |
-| Transformation     | PySpark, Delta Lake (Bronze → Silver → Gold)             |
-| Forecasting        | Prophet, Optuna (on Databricks Jobs)                     |
-| Anomaly Detection  | Prophet thresholds, Z-score (PySpark)                    |
-| Experiment Tracking| MLflow (Databricks-native)                               |
-| Orchestration      | Databricks Workflows or Prefect on AWS                   |
-| Dashboard          | Streamlit hosted via ECS or EC2                          |
-| CI/CD              | GitHub Actions, Docker, AWS ECS, Databricks REST API     |
-| Testing            | Pytest (unit + integration against Delta tables)         |
+NYC’s 311 service provides a critical channel for citizens to report non-emergency issues — from noise complaints to infrastructure failures.  
+However, due to the large volume and variety of requests, **sudden spikes or anomalies** often go undetected or are flagged too late.
 
----
+### Gaps in the Current Process
+- ❌ No automated mechanism to detect abnormal increases in specific complaint types or boroughs  
+- ❌ Operational teams remain **reactive**, responding only after complaints surge  
+- ❌ Delays in identifying anomalies lead to **service degradation**, inefficiencies, and poor resource allocation  
 
-## 🔁 Medallion Architecture Flow
-
-API → S3 (raw) → Databricks Auto Loader → Bronze Delta
-→ Silver Delta (cleaned & normalized)
-→ Gold Delta (aggregated for forecasting & dashboard)
-
-
+### This Project Solves
+- ✅ **Timely detection** of unusual spikes in 311 requests using model-based thresholds  
+- ✅ **Predictive insights** to forecast demand and guide resource planning  
+- ✅ A **transparent, reproducible ML system** with full lineage, auditability, and visualization  
 
 ---
 
-## 🔧 Component Directory Structure
+## 🚀 Features
 
+- **Daily Data Ingestion** from NYC Open Data API  
+- **Bronze → Silver → Gold** data processing via Delta Lake  
+- **Forecasting** future service volumes with Prophet + Optuna hyperparameter tuning  
+- **Anomaly Detection** using Prophet model thresholds  
+- **Experiment Tracking** with MLflow  
+- **Streamlit Dashboard** for stakeholder-friendly insights  
+- **CI/CD** with GitHub Actions  
+- **Fully Containerized** for deployment across Databricks or local environments  
+
+---
+
+## 🏗 Architecture Diagram
+
+```text
+       ┌──────────────────────────┐
+       │   NYC Open Data API      │
+       └────────────┬─────────────┘
+                    │
+                    ▼
+        ┌────────────────────┐
+        │     Bronze Layer    │
+        │ Raw 311 API ingest  │
+        │ (Delta Table)       │
+        └────────┬────────────┘
+                 │
+                 ▼
+        ┌────────────────────┐
+        │    Silver Layer     │
+        │ Clean + Deduped     │
+        │ Normalized Schema   │
+        └────────┬────────────┘
+                 │
+                 ▼
+        ┌────────────────────┐
+        │     Gold Layer      │
+        │ Aggregated Views    │
+        │ Forecasts & Anoms   │
+        └────────┬────────────┘
+                 │
+                 ▼
+        ┌────────────────────┐
+        │ Streamlit Dashboard │
+        │  + MLflow Tracking  │
+        └────────────────────┘
+
+## Repository Structure
 nyc-311-mlops/
-├── ingestion/ # API to S3, Auto Loader setup
-├── transformation/ # Bronze → Silver → Gold Delta jobs
-├── ml/ # Forecasting + anomaly detection
-├── orchestration/ # Databricks Workflows or Prefect flows
-├── dashboards/ # Streamlit app
-├── tests/ # Unit and integration tests
-├── docker-compose.yml # Local testing
-├── requirements.txt
-├── README.md # This file
-└── .github/workflows/ci.yml # CI/CD pipeline
+│
+├── src/
+│   ├── nyc311/
+│   │   ├── ingestion/        # API → Bronze
+│   │   ├── transforms/       # Bronze → Silver → Gold
+│   │   ├── forecasting/      # Prophet + anomaly detection
+│   │   ├── common/           # Configs, schemas, logging
+│   │   └── jobs/             # Job entrypoints
+│
+├── notebooks/                # Databricks notebook runners
+├── conf/                     # Environment configs (dev, acc, prod)
+├── tests/                    # Unit and Spark integration tests
+├── workflows/                # Databricks job/workflow definitions
+├── databricks.yml            # Bundle configuration
+├── Makefile                  # Developer commands
+└── README.md                 # Documentation (you’re here)
 
-
-
----
-
-## 🚀 How to Run the Pipeline (Dev Mode)
-
-### 1. Ingest Data to S3
-python ingestion/fetch_api_data.py
-
-### 2. Load Raw Data to Databricks (Bronze)
-Handled automatically by Databricks Auto Loader.
-
-### 3. Transform: Bronze → Silver → Gold
-Run notebook jobs or Databricks Workflows via UI or API.
-
-### 4. Forecast & Flag Anomalies
-python ml/generate_forecasts.py
-
-### 5. Track ML Experiments
-Logged automatically to Databricks MLflow.
-
-### 6. View Dashboard
-streamlit run dashboards/app.py
-
-## 📈 Deliverables to Showcase
-
-| Deliverable                      | Value                                               |
-| -------------------------------- | --------------------------------------------------- |
-| 📊 Forecast + anomaly dashboard  | Demonstrates real-time insights for stakeholders    |
-| 🧪 MLflow + Optuna tuning logs   | Showcases experimentation and model reproducibility |
-| 🧊 Delta Lake Medallion pipeline | Scalable, modular data engineering architecture     |
-| ⚙️ Databricks Workflows          | Reliable automation of daily flows                  |
-| 🐳 Docker + CI/CD pipeline       | Proves deployment readiness and DevOps maturity     |
-| ✅ Tests (unit + integration)     | Ensures production-grade quality assurance          |
-
-## 🔐 Deployment
-- Streamlit App: Deployed via Docker to AWS ECS Fargate or EC2
-- Forecasting Pipeline: Scheduled via Databricks Workflows
-- CI/CD: GitHub Actions → Docker Build → Deploy to ECS & Databricks Jobs via API
-
-## 🧪 Testing
-Run unit and integration tests locally:
-pytest tests/
-
-To test against Delta tables in Databricks:
-- Use the Databricks SQL Connector or pytest-databricks-connect
