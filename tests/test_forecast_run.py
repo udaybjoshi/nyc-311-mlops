@@ -1,6 +1,6 @@
 import pandas as pd
 import pytest
-from ml.forecast import forecast_requests
+from notebooks.forecast import forecast_requests
 
 def test_forecast_requests_basic():
     """Test forecast_requests with synthetic input.
