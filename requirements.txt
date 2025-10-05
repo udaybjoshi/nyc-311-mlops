@@ -1,32 +1,27 @@
-# API and HTTP requests
-requests
+# Core Spark + Delta (for local/dev use)
+pyspark==3.5.1
+delta-spark==3.2.0
 
-# MySQL database connector
-mysql-connector-python
-pymysql
+# Data wrangling
+pandas==2.2.2
+numpy==1.26.4
+pyyaml==6.0.2
+python-dotenv==1.0.1
 
-# Data manipulation (will be needed for Silver/Gold layers)
-pandas
+# Ingestion
+requests==2.32.3
+backoff==2.2.1
 
-# Orchestration (for scheduled flows)
-prefect
+# Forecasting + Tuning
+prophet==1.1.5
+cmdstanpy<1.2
+optuna==3.6.1
+scikit-learn==1.5.2
 
-# ML experimentation and tracking
-mlflow
+# Experiment tracking
+mlflow==2.16.0
 
-# API serving for model endpoints
-fastapi
-uvicorn
-
-# Monitoring for drift
-evidently
-
-# For Docker-based workflows (optional helper libraries)
-docker
-
-# Testing
-pytest
-
-# Forecasting
-prophet
-optuna
+# Dashboard / SQL access
+streamlit==1.38.0
+plotly==5.24.1
+databricks-sql-connector==3.1.0

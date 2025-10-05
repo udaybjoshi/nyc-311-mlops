@@ -6,12 +6,13 @@ from datetime import date, timedelta
 from pyspark.sql import functions as F
 
 # %% ---- Unity Catalog & Paths ----
-CATALOG = os.getenv("UC_CATALOG", "nyc")
+CATALOG = os.getenv("UC_CATALOG", "nyc_311")
 BRONZE = os.getenv("UC_BRONZE", "bronze")
 SILVER = os.getenv("UC_SILVER", "silver")
+GOLD   = os.getenv("UC_GOLD", "gold")
 
-RAW_PATH = os.getenv("RAW_PATH", "s3://<your-bucket>/nyc311/raw")
-BRONZE_CHECKPOINT = os.getenv("BRONZE_CHECKPOINT", "s3://<your-bucket>/nyc311/bronze/_chk")
+RAW_PATH = os.getenv("RAW_PATH", "s3://<your-bucket>/nyc_311/raw")
+BRONZE_CHECKPOINT = os.getenv("BRONZE_CHECKPOINT", "s3://<your-bucket>/nyc_311/bronze/_chk")
 
 BRONZE_TABLE = f"{CATALOG}.{BRONZE}.bronze_311"
 SILVER_TABLE = f"{CATALOG}.{SILVER}.silver_311"
