@@ -1,0 +1,19 @@
+env: qa
+aws:
+  region: us-east-1
+  s3_bucket: nyc-311-mlops-qa
+  s3_prefix: data
+databricks:
+  uc_catalog: nyc_311
+  uc_bronze: bronze
+  uc_silver: silver
+  uc_gold: gold
+  schedule_cron: "0 3 * * *"
+pipelines:
+  sample_days: 90
+  forecast_horizon_days: 14
+  overlap_days: 1
+  min_workers: 1
+  max_workers: 3
+  auto_terminate_minutes: 5
+  use_spot: true

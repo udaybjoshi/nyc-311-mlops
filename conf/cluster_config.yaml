@@ -1,0 +1,12 @@
+spark_version: 14.3.x-scala2.12
+node_type_id: i3.xlarge
+autoscale:
+  min_workers: 1
+  max_workers: 3
+spark_conf:
+  "spark.databricks.cluster.profile": "serverless"
+autotermination_minutes: 5
+enable_elastic_disk: true
+data_security_mode: "SINGLE_USER"
+aws_attributes:
+  availability: "SPOT_WITH_FALLBACK"  # Spot first, fallback on-demand

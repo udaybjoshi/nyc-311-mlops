@@ -1,130 +1,25 @@
-# databricks.yml (full job resources)
 bundle:
   name: nyc-311-mlops
+
+include:
+  - .databricks/bundle.yml    # keep single source of truth
 
 artifacts:
   default:
     type: whl
     path: .
-    build: uv build
+    build: python -m pip install --upgrade build && python -m build
+
+variables:
+  env:
+    description: "Environment (dev|qa|prod)"
+    default: dev
 
 targets:
   dev:
     default: true
-    workspace:
-      host: https://<your-workspace>
-      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.target}/${bundle.name}
-    run_as:
-      user_name: ${workspace.current_user.userName}
-
-resources:
-  jobs:
-    nyc311-backfill:
-      name: nyc311-backfill
-      tasks:
-        - task_key: raw_backfill
-          # FIRST TASK: run the 01 notebook
-          notebook_task:
-            notebook_path: /Workspace/Users/${workspace.current_user.userName}/nyc-311/notebooks/01_data_ingestion_preprocessing
-            base_parameters:
-              # For backfill: do a 1-year initial load (the notebook defaults to 365 if omitted)
-              BACKFILL_DAYS: "365"
-          job_cluster_key: jc
-          # Pass environment variables into the cluster (dbutils.widgets is not used; we rely on env)
-          environment_key: env
-      job_clusters:
-        - job_cluster_key: jc
-          new_cluster:
-            spark_version: 14.3.x-scala2.12
-            node_type_id: i3.xlarge
-            num_workers: 1
-      environments:
-        - environment_key: env
-          environment_variables:
-            UC_CATALOG: ${var.uc_catalog}
-            UC_BRONZE:  ${var.uc_bronze}
-            UC_SILVER:  ${var.uc_silver}
-            UC_GOLD:    ${var.uc_gold}
-            RAW_PATH:   ${var.raw_path}
-            BRONZE_CHECKPOINT: ${var.bronze_chk}
-            NYC_API_BASE:   ${var.nyc_api_base}
-            NYC_DATASET_ID: ${var.nyc_dataset_id}
-            NYC_PAGE_SIZE:  ${var.nyc_page_size}
-            # Access token from secret scope (create this in Databricks beforehand)
-            NYC_OPENDATA_TOKEN: {{secrets/n311/opendata_token}}
-
-    nyc311-daily-pipeline:
-      name: nyc311-daily-pipeline
-      schedule:
-        quartz_cron_expression: "0 30 6 * * ?"   # 6:30am ET daily
-        timezone_id: "America/New_York"
-        pause_status: UNPAUSED
-      tasks:
-        - task_key: raw_incremental
-          # FIRST TASK: same notebook; it performs the incremental daily write (yesterday by default)
-          notebook_task:
-            notebook_path: /Workspace/Users/${workspace.current_user.userName}/nyc-311/notebooks/01_data_ingestion_preprocessing
-            base_parameters: {}
-          job_cluster_key: jc
-          environment_key: env
-
-        - task_key: bronze
-          depends_on: [{ task_key: raw_incremental }]
-          python_wheel_task:
-            package_name: nyc-311-mlops
-            entry_point: nyc311-02-bronze
-          job_cluster_key: jc
-          environment_key: env
-
-        - task_key: silver
-          depends_on: [{ task_key: bronze }]
-          python_wheel_task:
-            package_name: nyc-311-mlops
-            entry_point: nyc311-03-silver
-          job_cluster_key: jc
-          environment_key: env
-
-        - task_key: gold
-          depends_on: [{ task_key: silver }]
-          python_wheel_task:
-            package_name: nyc-311-mlops
-            entry_point: nyc311-04-gold
-          job_cluster_key: jc
-          environment_key: env
-
-        - task_key: forecast
-          depends_on: [{ task_key: gold }]
-          python_wheel_task:
-            package_name: nyc-311-mlops
-            entry_point: nyc311-06-forecast
-          job_cluster_key: jc
-          environment_key: env
-
-        - task_key: anomalies
-          depends_on: [{ task_key: forecast }]
-          python_wheel_task:
-            package_name: nyc-311-mlops
-            entry_point: nyc311-07-anoms
-          job_cluster_key: jc
-          environment_key: env
-
-      job_clusters:
-        - job_cluster_key: jc
-          new_cluster:
-            spark_version: 14.3.x-scala2.12
-            node_type_id: i3.xlarge
-            num_workers: 1
-
-      environments:
-        - environment_key: env
-          environment_variables:
-            UC_CATALOG: ${var.uc_catalog}
-            UC_BRONZE:  ${var.uc_bronze}
-            UC_SILVER:  ${var.uc_silver}
-            UC_GOLD:    ${var.uc_gold}
-            RAW_PATH:   ${var.raw_path}
-            BRONZE_CHECKPOINT: ${var.bronze_chk}
-            NYC_API_BASE:   ${var.nyc_api_base}
-            NYC_DATASET_ID: ${var.nyc_dataset_id}
-            NYC_PAGE_SIZE:  ${var.nyc_page_size}
-            NYC_OPENDATA_TOKEN: {{secrets/n311/opendata_token}}
+    variables: { env: dev }
+  qa:
+    variables: { env: qa }
+  prod:
+    variables: { env: prod }

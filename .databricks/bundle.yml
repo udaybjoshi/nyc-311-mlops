@@ -1,0 +1,70 @@
+bundle:
+  name: nyc-311-mlops
+
+targets:
+  dev:
+    default: true
+    workspace:
+      host: https://<your-workspace>
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.target}/${bundle.name}
+    variables:
+      env: dev
+  qa:
+    workspace:
+      host: https://<your-workspace>
+      root_path: /Shared/.bundle/${bundle.target}/${bundle.name}
+    variables:
+      env: qa
+  prod:
+    workspace:
+      host: https://<your-workspace>
+      root_path: /Shared/.bundle/${bundle.target}/${bundle.name}
+    variables:
+      env: prod
+
+resources:
+  jobs:
+    nightly_pipeline:
+      name: nyc-311-nightly-${var.env}
+      schedule:
+        quartz_cron_expression: "0 0 7 * * ?"
+        timezone_id: "America/New_York" # 3 AM ET ~= 7 UTC (adjust if needed)
+        pause_status: UNPAUSED
+      tasks:
+        - task_key: bronze_ingest
+          python_wheel_task:
+            package_name: nyc311
+            entry_point: bronze_ingest
+            parameters: ["--env", "${var.env}"]
+          job_cluster_key: batch_cluster
+        - task_key: silver_transform
+          depends_on: [{ task_key: bronze_ingest }]
+          python_wheel_task:
+            package_name: nyc311
+            entry_point: silver_transform
+            parameters: ["--env", "${var.env}"]
+          job_cluster_key: batch_cluster
+        - task_key: gold_aggregate
+          depends_on: [{ task_key: silver_transform }]
+          python_wheel_task:
+            package_name: nyc311
+            entry_point: gold_aggregate
+            parameters: ["--env", "${var.env}"]
+          job_cluster_key: batch_cluster
+        - task_key: forecast_train
+          depends_on: [{ task_key: gold_aggregate }]
+          python_wheel_task:
+            package_name: nyc311
+            entry_point: forecast_train
+            parameters: ["--env", "${var.env}"]
+          job_cluster_key: batch_cluster
+        - task_key: anomaly_detect
+          depends_on: [{ task_key: forecast_train }]
+          python_wheel_task:
+            package_name: nyc311
+            entry_point: anomaly_detect
+            parameters: ["--env", "${var.env}"]
+          job_cluster_key: batch_cluster
+      job_clusters:
+        - job_cluster_key: batch_cluster
+          new_cluster: ${workspace.file(".//conf/cluster_config.yaml")}

@@ -1,0 +1,52 @@
+name: deploy
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Bundle target to deploy (dev|qa|prod)"
+        required: true
+        default: "dev"
+  push:
+    branches: [ main ]
+    paths:
+      - ".databricks/**"
+      - "src/**"
+      - "conf/**"
+      - "databricks.yml"
+
+jobs:
+  bundle-deploy:
+    runs-on: ubuntu-latest
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Databricks CLI
+        run: |
+          pip install --upgrade pip
+          pip install "databricks-cli>=0.229.0"
+
+      - name: Resolve target
+        id: t
+        run: |
+          if [ -n "${{ github.event.inputs.target }}" ]; then
+            echo "TARGET=${{ github.event.inputs.target }}" >> $GITHUB_OUTPUT
+          else
+            echo "TARGET=qa" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Validate bundle
+        run: databricks bundle validate -t ${{ steps.t.outputs.TARGET }}
+
+      - name: Deploy bundle
+        run: databricks bundle deploy -t ${{ steps.t.outputs.TARGET }}
+
+      - name: Run nightly job once (smoke)
+        run: databricks bundle run nightly_pipeline -t ${{ steps.t.outputs.TARGET }} --refresh-all
