@@ -1,5 +1,6 @@
 """Bronze → Silver with Great Expectations and schema enforcement."""
 
+# %% import libraries
 from __future__ import annotations
 from pyspark.sql import SparkSession, functions as F, types as T
 from nyc311.utils.config import load_config
@@ -23,6 +24,7 @@ CORE_MAP = {
     "status": T.StringType(),
 }
 
+# %% run function
 def _select_cast(df):
     """Select and cast only the core columns defined in CORE_MAP.
 
@@ -38,6 +40,7 @@ def _select_cast(df):
             cols.append(F.col(src).cast(t).alias(src))
     return df.select(*cols)
 
+# %% run function
 def _run_expectations(pdf):
     """Run minimal Great Expectations validations on a small sample.
 
@@ -60,6 +63,7 @@ def _run_expectations(pdf):
         raise AssertionError("Great Expectations validation failed")
     return True
 
+# %% run function
 def run(env: str | None = None) -> dict:
     """Transform Bronze table to Silver with schema and DQ checks.
 
@@ -96,3 +100,5 @@ def run(env: str | None = None) -> dict:
     upsert_on_key(spark, df, silver, key_cols=["unique_key"])
     log.info("Silver upserted: %s", silver)
     return {"silver_table": silver}
+
+# %%

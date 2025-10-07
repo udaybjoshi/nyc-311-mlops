@@ -1,5 +1,6 @@
 """Silver → Gold daily aggregates and simple lag/MA features."""
 
+# %% import libraries
 from __future__ import annotations
 from pyspark.sql import SparkSession, functions as F
 from nyc311.utils.config import load_config
@@ -8,6 +9,7 @@ from nyc311.utils.delta_helpers import overwrite_table
 
 log = get_logger(__name__)
 
+# %% run function
 def run(env: str | None = None) -> dict:
     """Aggregate Silver to daily Gold features.
 
