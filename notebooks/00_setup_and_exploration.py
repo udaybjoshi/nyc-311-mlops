@@ -8,7 +8,7 @@ sample Bronze/Silver/Gold tables without modifying pipeline state.
 # Databricks notebook source
 # MAGIC %md # Setup & Exploration
 
-# COMMAND ----------
+# %%COMMAND ----------
 from nyc311.utils.config import load_config
 
 
