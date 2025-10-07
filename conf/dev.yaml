@@ -4,7 +4,7 @@ aws:
   s3_bucket: nyc-311-mlops-dev
   s3_prefix: data
 databricks:
-  uc_catalog: nyc_311
+  uc_catalog: mlops_nyc_311
   uc_bronze: bronze
   uc_silver: silver
   uc_gold: gold
